@@ -1,10 +1,14 @@
-import aiohttp
 import urllib.parse
-from datetime import datetime
-
 from dataclasses import dataclass
+from datetime import datetime
+from http.cookies import SimpleCookie
+from typing import Literal
 
-from .exceptions import InvalidCredentials, LoginFailed
+import aiohttp
+
+from . import _LOGGER
+from .exceptions import FastGateException, InvalidCredentials, LoginFailed
+
 
 @dataclass
 class FastGateDevice:
@@ -22,10 +26,13 @@ class FastGateDevice:
     
 
 class FastGateApi:
-    def __init__(self, base_url) -> None:
+    def __init__(self, domain: str, protocol: Literal["http", "https"], username: str, password: str) -> None:
         self._cookie_jar = aiohttp.CookieJar(unsafe=True)
         self.session = aiohttp.ClientSession(cookie_jar=self._cookie_jar)
-        self.base_url = base_url
+        self.domain = domain
+        self.protocol = protocol
+        self.username = username
+        self.password = password
         self.headers = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Encoding": "gzip, deflate",
@@ -33,6 +40,7 @@ class FastGateApi:
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "Pragma": "no-cache",
+            "User-Agent": "aiofastgate/0.0.1 aiohttp/3.7.4.post0"
         }
 
     def _get_timestamp(self):
@@ -40,18 +48,29 @@ class FastGateApi:
         ts = datetime.timestamp(dt) 
         return int(ts)
 
-    async def login(self, username: str, password: str):
+    async def _do_get(self, uri: str):
+        url = self.protocol+"://"+self.domain+uri
+        response = await self.session.get(url, headers=self.headers)
+        if response.status == 403:
+            _LOGGER.debug("Server returned 403. Trying to login...")
+            await self.login()
+            response = await self.session.get(url, headers=self.headers)
+        if response.status != 200:
+            raise FastGateException(f"Failed to GET {uri}. Status code: {response.status}")
+        return response
+
+    async def login(self):
         params = {
             "_": self._get_timestamp(),
             "cmd": 3,
             "nvget": "login_confirm",
-            "password": password,
-            "username": username
+            "password": self.password,
+            "username": self.username
         }
-        response = await self.session.get(self.base_url+"/status.cgi?"+urllib.parse.urlencode(params), headers=self.headers)
-
+        _LOGGER.debug("Logging in...")
+        response = await self.session.get(self.protocol+"://"+self.domain+"/status.cgi?"+urllib.parse.urlencode(params), headers=self.headers)
         if response.status != 200:
-            raise LoginFailed("Login failed")
+            raise LoginFailed("Login failed. Status code: "+str(response.status))
         data = await response.json(content_type="text/plain")
         if not data.get("login_confirm", False):
             raise LoginFailed("Login failed")
@@ -63,9 +82,8 @@ class FastGateApi:
             "_": self._get_timestamp(),
             "nvget": "connected_device_list",
         }
-        response = await self.session.get(self.base_url+"/status.cgi?"+urllib.parse.urlencode(params), headers=self.headers)
-        if response.status != 200:
-            raise LoginFailed("Failed to get devices")
+        uri = "/status.cgi?"+urllib.parse.urlencode(params)
+        response = await self._do_get(uri)
         
         data = await response.json(content_type="text/plain")
         data = data["connected_device_list"]
