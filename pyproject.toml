@@ -1,0 +1,30 @@
+[project]
+name = "aiofastgate"
+version = "0.0.1"
+description = "A python library for interacting with FASTGate routers"
+
+authors = [
+  { name="chickenmatty" },
+]
+
+license = { file = "LICENSE" }
+readme = "README.md"
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "aiohttp==3.8.5"
+]
+
+
+[project.urls]
+"Homepage" = "https://github.com/chickenmatty/aiofastgate"
+"Bug Tracker" = "https://github.com/chickenmatty/aiofastgate/issues"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
